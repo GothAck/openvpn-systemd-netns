@@ -1,0 +1,30 @@
+[Unit]
+Description=Attach eth0 to Named network namespace %i
+Requires=netns@%i.service
+After=netns@%i.service
+StopWhenUnneeded=true
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Associate the eth0 NIC with the network namespace
+ExecStart=/sbin/ip link add veth0 type veth peer name vpeer0
+ExecStart=/sbin/ip link set vpeer0 netns %i
+ExecStart=/bin/sleep 1
+ExecStart=/sbin/ip addr add 10.200.1.1/24 dev veth0
+ExecStart=/sbin/ip link set veth0 up
+ExecStart=/sbin/ip netns exec %i /sbin/ip addr add 10.200.1.2/24 dev vpeer0
+ExecStart=/sbin/ip netns exec %i /sbin/ip link set vpeer0 up
+ExecStart=/sbin/ip netns exec %i /sbin/ip link set lo up
+ExecStart=/sbin/ip netns exec %i /sbin/ip route add default via 10.200.1.1
+ExecStart=/sbin/iptables -P FORWARD DROP
+ExecStart=/sbin/iptables -F FORWARD
+ExecStart=/sbin/iptables -t nat -F
+ExecStart=/sbin/iptables -t nat -A POSTROUTING -s 10.200.1.2/24 -o eth0 -j MASQUERADE
+ExecStart=/sbin/iptables -A FORWARD -i eth0 -o veth0 -j ACCEPT
+ExecStart=/sbin/iptables -A FORWARD -o eth0 -i veth0 -j ACCEPT
+
+# Run iproute2 (inside the netns) to bring the NIC down (on stop)
+ExecStop=/sbin/ip netns exec %i /sbin/ip l set down dev vpeer0
+ExecStop=/sbin/ip link delete veth0
